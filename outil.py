@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import messagebox, filedialog, simpledialog
+import sys
 import json
 import networkx as nx
 import matplotlib.pyplot as plt
@@ -162,18 +163,22 @@ class DialogueEditor:
         self.next_dialogue_entry = tk.Entry(response_control_frame, width=10)
         self.next_dialogue_entry.grid(row=0, column=3, padx=5, pady=5)
 
-        tk.Label(response_control_frame, text="Déclencher Quête (ID):").grid(row=0, column=4, padx=5, pady=5)
+        tk.Label(response_control_frame, text="Dialogue Précédent (ID):").grid(row=0, column=4, padx=5, pady=5)
+        self.prev_dialogue_entry = tk.Entry(response_control_frame, width=10)  # Champ pour spécifier le dialogue précédent
+        self.prev_dialogue_entry.grid(row=0, column=5, padx=5, pady=5)
+
+        tk.Label(response_control_frame, text="Déclencher Quête (ID):").grid(row=0, column=6, padx=5, pady=5)
         self.response_quest_entry = tk.Entry(response_control_frame, width=10)
-        self.response_quest_entry.grid(row=0, column=5, padx=5, pady=5)
+        self.response_quest_entry.grid(row=0, column=7, padx=5, pady=5)
 
         add_response_btn = tk.Button(response_control_frame, text="Ajouter Réponse", command=self.add_response)
-        add_response_btn.grid(row=0, column=6, padx=5, pady=5)
+        add_response_btn.grid(row=0, column=8, padx=5, pady=5)
 
         edit_response_btn = tk.Button(response_control_frame, text="Modifier Réponse", command=self.edit_response)
-        edit_response_btn.grid(row=0, column=7, padx=5, pady=5)
+        edit_response_btn.grid(row=0, column=9, padx=5, pady=5)
 
         delete_response_btn = tk.Button(response_control_frame, text="Supprimer Réponse", command=self.delete_response)
-        delete_response_btn.grid(row=0, column=8, padx=5, pady=5)
+        delete_response_btn.grid(row=0, column=10, padx=5, pady=5)
 
         # Liste des réponses
         self.response_listbox = tk.Listbox(self.content, width=100)
@@ -292,13 +297,8 @@ class DialogueEditor:
         confirm = messagebox.askyesno("Confirmer", f"Êtes-vous sûr de vouloir supprimer le dialogue {dialogue_id}?")
         if confirm:
             del self.dialogues[npc]['Dialogue'][dialogue_id]
-            # Supprimer les réponses liées à ce dialogue
-            responses_to_delete = [resp_id for resp_id, resp in self.dialogues[npc]['responses'].items() if resp['next_dialogue'] == int(dialogue_id)]
-            for resp_id in responses_to_delete:
-                del self.dialogues[npc]['responses'][resp_id]
             self.display_area.insert(tk.END, f"Supprimé dialogue {dialogue_id}\n")
             self.refresh_dialogue_list()
-            self.refresh_response_list()
             self.update_graph()
 
     def on_dialogue_select(self, event):
@@ -321,6 +321,7 @@ class DialogueEditor:
     def add_response(self):
         response = self.response_entry.get().strip()
         next_dialogue = self.next_dialogue_entry.get().strip()
+        prev_dialogue = self.prev_dialogue_entry.get().strip()  # Nouveau champ pour dialogue précédent
         quest_id = self.response_quest_entry.get().strip()
         if not response:
             messagebox.showwarning("Attention", "Veuillez entrer une réponse.")
@@ -328,19 +329,24 @@ class DialogueEditor:
         if next_dialogue and next_dialogue not in self.dialogues[self.current_npc]['Dialogue']:
             messagebox.showwarning("Attention", f"Le dialogue suivant ID '{next_dialogue}' n'existe pas.")
             return
+        if prev_dialogue and prev_dialogue not in self.dialogues[self.current_npc]['Dialogue']:
+            messagebox.showwarning("Attention", f"Le dialogue précédent ID '{prev_dialogue}' n'existe pas.")
+            return
         if quest_id and quest_id not in self.quests:
             messagebox.showwarning("Attention", f"La quête ID '{quest_id}' n'existe pas.")
             return
         npc = self.current_npc
         response_id = len(self.dialogues[npc]['responses']) + 1
         next_dialogue_id = int(next_dialogue) if next_dialogue else None
+        prev_dialogue_id = int(prev_dialogue) if prev_dialogue else None
         quest_trigger = int(quest_id) if quest_id else 0
-        self.dialogues[npc]['responses'][str(response_id)] = {"text": response, "next_dialogue": next_dialogue_id, "quest_trigger": quest_trigger}
-        self.display_area.insert(tk.END, f"Ajouté réponse {response_id}: {response} (Dialogue suivant: {next_dialogue if next_dialogue else 'N/A'}) (Quête: {quest_trigger})\n")
+        self.dialogues[npc]['responses'][str(response_id)] = {"text": response, "next_dialogue": next_dialogue_id, "prev_dialogue": prev_dialogue_id, "quest_trigger": quest_trigger}
+        self.display_area.insert(tk.END, f"Ajouté réponse {response_id}: {response} (Dialogue suivant: {next_dialogue if next_dialogue else 'N/A'}) (Dialogue précédent: {prev_dialogue if prev_dialogue else 'N/A'}) (Quête: {quest_trigger})\n")
         self.refresh_response_list()
         self.update_graph()
         self.response_entry.delete(0, tk.END)
         self.next_dialogue_entry.delete(0, tk.END)
+        self.prev_dialogue_entry.delete(0, tk.END)
         self.response_quest_entry.delete(0, tk.END)
 
     def edit_response(self):
@@ -353,6 +359,7 @@ class DialogueEditor:
         response_id = list(self.dialogues[npc]['responses'].keys())[index]
         current_response = self.dialogues[npc]['responses'][response_id]["text"]
         current_next = self.dialogues[npc]['responses'][response_id]["next_dialogue"]
+        current_prev = self.dialogues[npc]['responses'][response_id]["prev_dialogue"]
         current_quest = self.dialogues[npc]['responses'][response_id]["quest_trigger"]
 
         new_response = simpledialog.askstring("Modifier Réponse", "Entrez le nouveau texte de la réponse:", initialvalue=current_response)
@@ -372,6 +379,15 @@ class DialogueEditor:
         else:
             new_next = None
 
+        new_prev = simpledialog.askstring("Modifier Dialogue Précédent", "Entrez le nouvel ID du dialogue précédent (laisser vide si aucun):", initialvalue=str(current_prev) if current_prev else "")
+        if new_prev:
+            if new_prev not in self.dialogues[npc]['Dialogue']:
+                messagebox.showwarning("Attention", f"Le dialogue précédent ID '{new_prev}' n'existe pas.")
+                return
+            new_prev = int(new_prev)
+        else:
+            new_prev = None
+
         new_quest = simpledialog.askstring("Modifier Quête", "Entrez le nouvel ID de quête (laisser vide si aucune):", initialvalue=str(current_quest) if current_quest else "")
         if new_quest:
             if new_quest not in self.quests:
@@ -383,8 +399,9 @@ class DialogueEditor:
 
         self.dialogues[npc]['responses'][response_id]["text"] = new_response
         self.dialogues[npc]['responses'][response_id]["next_dialogue"] = new_next
+        self.dialogues[npc]['responses'][response_id]["prev_dialogue"] = new_prev
         self.dialogues[npc]['responses'][response_id]["quest_trigger"] = new_quest
-        self.display_area.insert(tk.END, f"Modifié réponse {response_id}: {new_response} (Dialogue suivant: {new_next if new_next else 'N/A'}) (Quête: {new_quest})\n")
+        self.display_area.insert(tk.END, f"Modifié réponse {response_id}: {new_response} (Dialogue suivant: {new_next if new_next else 'N/A'}) (Dialogue précédent: {new_prev if new_prev else 'N/A'}) (Quête: {new_quest})\n")
         self.refresh_response_list()
         self.update_graph()
 
@@ -411,16 +428,18 @@ class DialogueEditor:
             response_id = list(self.dialogues[npc]['responses'].keys())[index]
             response = self.dialogues[npc]['responses'][response_id]["text"]
             next_dialogue = self.dialogues[npc]['responses'][response_id]["next_dialogue"]
+            prev_dialogue = self.dialogues[npc]['responses'][response_id]["prev_dialogue"]
             quest = self.dialogues[npc]['responses'][response_id]["quest_trigger"]
-            self.display_area.insert(tk.END, f"Sélectionné Réponse {response_id}: {response} (Dialogue suivant: {next_dialogue if next_dialogue else 'N/A'}) (Quête: {quest})\n")
+            self.display_area.insert(tk.END, f"Sélectionné Réponse {response_id}: {response} (Dialogue suivant: {next_dialogue if next_dialogue else 'N/A'}) (Dialogue précédent: {prev_dialogue if prev_dialogue else 'N/A'}) (Quête: {quest})\n")
 
     def refresh_response_list(self):
         self.response_listbox.delete(0, tk.END)
         npc = self.current_npc
         for response_id, response in self.dialogues[npc]['responses'].items():
             next_info = f" (Dialogue suivant: {response['next_dialogue']})" if response['next_dialogue'] else ""
+            prev_info = f" (Dialogue précédent: {response['prev_dialogue']})" if response['prev_dialogue'] else ""
             quest_info = f" (Quête ID: {response['quest_trigger']})" if response['quest_trigger'] else ""
-            self.response_listbox.insert(tk.END, f"ID {response_id}: {response['text']}{next_info}{quest_info}")
+            self.response_listbox.insert(tk.END, f"ID {response_id}: {response['text']}{next_info}{prev_info}{quest_info}")
 
     def add_quest(self):
         quest_id = self.quest_id_entry.get().strip()
@@ -526,6 +545,9 @@ class DialogueEditor:
                 # Ajouter une arête vers le dialogue suivant si spécifié
                 if response['next_dialogue']:
                     self.graph.add_edge(f"R_{npc}_{response_id}", f"D_{npc}_{response['next_dialogue']}", label='Suit')
+                # Ajouter une arête vers le dialogue précédent si spécifié
+                if response['prev_dialogue']:
+                    self.graph.add_edge(f"D_{npc}_{response['prev_dialogue']}", f"R_{npc}_{response_id}", label='Précède')
                 # Ajouter une arête vers une quête si la réponse déclenche une quête
                 if response['quest_trigger']:
                     quest_label = f"Quête {response['quest_trigger']}: {self.quests[str(response['quest_trigger'])]['description']}"
@@ -579,11 +601,19 @@ class DialogueEditor:
                 self.update_graph()
             messagebox.showinfo("Chargement", "Fichier chargé avec succès !")
 
+
+
+
     def refresh_display(self):
         self.display_area.delete(1.0, tk.END)
         self.display_area.insert(tk.END, "Données mises à jour.\n")
 
+def  on_closing():
+    root.destroy()
+    sys.exit()
+
 if __name__ == "__main__":
     root = tk.Tk()
     app = DialogueEditor(root)
+    root.protocol("WM_DELETE_WINDOW", on_closing)
     root.mainloop()
